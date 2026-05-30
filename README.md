@@ -11,8 +11,8 @@ Go was chosen over Rust because of existing production experience with Go servic
 ## Quick Start
 
 ```bash
-git clone <repo-url>
-cd <repo>
+git clone https://github.com/dabhivijay2478/dodopayments
+cd dodopayments
 cp .env.example .env   # local API + tests use DATABASE_URL from here
 docker compose up --build
 ```
