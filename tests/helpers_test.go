@@ -28,7 +28,7 @@ func setupTestDB(t *testing.T) *gorm.DB {
 	t.Helper()
 	cfg := config.Load()
 	if cfg.DatabaseURL == "" {
-		t.Fatal("DATABASE_URL is required: copy .env.example to .env")
+		t.Fatal("DATABASE_URL is required: add it to .env in the repo root (cp .env.example .env) or export DATABASE_URL before go test")
 	}
 	if db.DB == nil {
 		if err := db.Connect(cfg.DatabaseURL); err != nil {

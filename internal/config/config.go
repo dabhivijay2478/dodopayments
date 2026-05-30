@@ -21,10 +21,16 @@ func getEnvOrDefault(key, defaultVal string) string {
 	return defaultVal
 }
 
-// Load reads optional .env from the working directory, then builds Config from environment variables.
-// Docker Compose and production should inject the same variables; .env is for local development.
+// Load reads optional .env, then builds Config from environment variables.
+// Tries "." and ".." so `go test ./tests/...` works when the IDE cwd is the tests/ folder.
+// Docker Compose and production inject vars directly; .env is for local development.
 func Load() Config {
-	_ = godotenv.Load()
+	for _, path := range []string{".env", "../.env"} {
+		_ = godotenv.Load(path)
+		if os.Getenv("DATABASE_URL") != "" {
+			break
+		}
+	}
 
 	return Config{
 		DatabaseURL:         os.Getenv("DATABASE_URL"),
