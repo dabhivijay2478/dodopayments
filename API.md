@@ -12,7 +12,9 @@ All routes except `GET /health` require:
 Authorization: Bearer <api_key>
 ```
 
-API keys are issued at seed (`SEED_DATA=true`) or stored with prefix + hash server-side.
+API keys are scoped to a **business**. The full secret is shown only at creation (seed or `POST /api-keys`). The server stores `key_prefix` + SHA-256 hash only.
+
+**Rotation:** create a new key, switch clients to it, then revoke the old key. Revoked keys return `401` immediately.
 
 ## Error Format
 
@@ -48,6 +50,68 @@ No auth.
 
 ```bash
 curl -s http://localhost:8080/health
+```
+
+---
+
+## POST /api-keys
+
+Create a new business API key. Optional body revokes an old key in the same request.
+
+**Body (optional)**
+
+| Field | Type | Required |
+|-------|------|----------|
+| revoke_key_id | uuid string | no — revoke this key after creating the new one |
+
+**Response `201`**
+
+```json
+{
+  "id": "...",
+  "key_prefix": "sk_abc1234",
+  "api_key": "sk_...",
+  "token_type": "Bearer",
+  "authorization": "Bearer sk_...",
+  "created_at": "...",
+  "message": "Store api_key now. Revoked keys return 401 immediately."
+}
+```
+
+```bash
+curl -s -X POST http://localhost:8080/api-keys \
+  -H "Authorization: Bearer $API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"revoke_key_id":"OLD_KEY_UUID"}'
+```
+
+---
+
+## GET /api-keys
+
+**Response `200`** — `{ "data": [{ "id", "business_id", "key_prefix", "revoked_at", "created_at" }], "count": N }` (no secrets)
+
+```bash
+curl -s http://localhost:8080/api-keys -H "Authorization: Bearer $API_KEY"
+```
+
+---
+
+## DELETE /api-keys/{id}
+
+Revokes the key (`revoked_at` set). That key stops working immediately.
+
+**Response `200`**
+
+```json
+{"id":"...","revoked_at":"...","message":"API key revoked; requests using it will receive 401"}
+```
+
+**Errors:** `404` not_found, `409` already_revoked
+
+```bash
+curl -s -X DELETE http://localhost:8080/api-keys/KEY_UUID \
+  -H "Authorization: Bearer $API_KEY"
 ```
 
 ---

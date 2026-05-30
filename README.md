@@ -30,6 +30,22 @@ TEST API KEY: sk_xxxx
 
 Use it as `Authorization: Bearer <key>` on all routes except `GET /health`.
 
+### Rotate API key
+
+1. Create a new key (optionally revoke the old one in the same request):
+
+```bash
+curl -s -X POST http://localhost:8080/api-keys \
+  -H "Authorization: Bearer $OLD_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"revoke_key_id":"OLD_KEY_ID"}'
+```
+
+2. Save the new `api_key` from the response and update Postman variable `apiKey`.
+3. Or revoke separately: `DELETE /api-keys/{id}` — that key returns `401` on the next request.
+
+List keys: `GET /api-keys` (shows `key_prefix`, `revoked_at`; no secrets).
+
 ## Environment Variables
 
 | Variable | Description | Default |
@@ -188,7 +204,7 @@ internal/config/     — Loads .env + environment variables
 internal/db/         — Postgres connection, pgcrypto, GORM AutoMigrate
 internal/models/     — 8 GORM models (all money as int64 cents)
 internal/middleware/ — Bearer API key auth middleware
-internal/handlers/   — HTTP handlers (customers, invoices, payments, webhooks)
+internal/handlers/   — HTTP handlers (api keys, customers, invoices, payments, webhooks)
 internal/payment/    — PSP HTTP client (10s timeout)
 internal/webhook/    — Async HMAC-signed delivery with exponential retries
 tests/               — Integration tests (separate files per concern)
@@ -214,3 +230,7 @@ Client ──▶ chi router ──▶ AuthMiddleware ──▶ Handler
 3. The pay handler uses a short DB transaction (lock + insert pending), commits, then calls the PSP externally.
 4. PSP outcomes update the attempt + invoice state in separate DB calls (no transaction needed).
 5. Webhooks are dispatched in background goroutines — never blocking the API response.
+
+## Postman
+
+Import `postman/Invoice-Payment-Service.postman_collection.json` (File import, not Raw text). Set collection variable `apiKey` from `docker compose logs api | grep "TEST API KEY"`. Run folders **00** then **01** in order. Folder **00** includes API key create/list/revoke for rotation.

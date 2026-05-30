@@ -1,9 +1,6 @@
 package main
 
 import (
-	"crypto/rand"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -36,24 +33,12 @@ func main() {
 			business := models.Business{Name: "Test Business"}
 			if err := db.DB.Create(&business).Error; err != nil {
 				log.Printf("seed business failed: %v", err)
+			} else if _, fullKey, err := handlers.IssueAPIKey(business.ID); err != nil {
+				log.Printf("seed api key failed: %v", err)
 			} else {
-				keyBytes := make([]byte, 32)
-				if _, err := rand.Read(keyBytes); err == nil {
-					key := "sk_" + hex.EncodeToString(keyBytes)
-					hash := sha256.Sum256([]byte(key))
-					apiKey := models.APIKey{
-						BusinessID: business.ID,
-						KeyPrefix:  key[:11],
-						KeyHash:    hex.EncodeToString(hash[:]),
-					}
-					if err := db.DB.Create(&apiKey).Error; err != nil {
-						log.Printf("seed api key failed: %v", err)
-					} else {
-						fmt.Printf("\n=============================\n")
-						fmt.Printf("TEST API KEY: %s\n", key)
-						fmt.Printf("=============================\n\n")
-					}
-				}
+				fmt.Printf("\n=============================\n")
+				fmt.Printf("TEST API KEY: %s\n", fullKey)
+				fmt.Printf("=============================\n\n")
 			}
 		}
 	}
@@ -68,6 +53,10 @@ func main() {
 
 	r.Group(func(r chi.Router) {
 		r.Use(middleware.AuthMiddleware)
+
+		r.Post("/api-keys", handlers.CreateAPIKey)
+		r.Get("/api-keys", handlers.ListAPIKeys)
+		r.Delete("/api-keys/{id}", handlers.RevokeAPIKey)
 
 		r.Post("/customers", handlers.CreateCustomer)
 		r.Get("/customers", handlers.ListCustomers)

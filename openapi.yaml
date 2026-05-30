@@ -5,8 +5,8 @@ info:
     Dodo Payments take-home — Invoice & Payment Service.
 
     - **Auth:** `Authorization: Bearer <api_key>` on all routes except `/health`
-    - **Business key:** printed on `docker compose up` (admin — customers, api-keys, webhooks)
-    - **Customer key:** returned once per `POST /customers` (`api_key` in response)
+    - **API keys:** seeded on first boot (`TEST API KEY` in logs); rotate via `POST /api-keys` + `DELETE /api-keys/{id}`
+    - **Revoked keys:** return `401` immediately (`revoked_at` set)
     - **Money:** integer cents (`int64`); server computes invoice totals
     - **Pay:** requires `Idempotency-Key` header; 10s PSP timeout
     - **Mock PSP:** http://localhost:9090 (host) or http://mock-psp:9090 (docker network)
@@ -50,7 +50,8 @@ paths:
       tags: [API Keys]
       summary: Create API key
       operationId: createAPIKey
-      description: Requires business Bearer token. Optional customer_id for customer-scoped key.
+      description: |
+        Creates a new business API key (secret shown once). Optional `revoke_key_id` revokes the old key in the same request for rotation.
       requestBody:
         content:
           application/json:
@@ -65,15 +66,13 @@ paths:
                 $ref: '#/components/schemas/APIKeyCreated'
         '401':
           $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/NotFound'
     get:
       tags: [API Keys]
       summary: List API keys
       operationId: listAPIKeys
-      description: Requires business Bearer token.
+      description: Lists API keys for the authenticated business (prefix only; no secrets).
       responses:
         '200':
           description: API keys without secrets
@@ -83,32 +82,35 @@ paths:
                 $ref: '#/components/schemas/APIKeyListResponse'
         '401':
           $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
 
   /api-keys/{id}:
     delete:
       tags: [API Keys]
       summary: Revoke API key
       operationId: revokeAPIKey
+      description: Sets `revoked_at`; that key immediately returns 401 on all routes.
       parameters:
         - $ref: '#/components/parameters/UuidPathId'
       responses:
         '200':
           description: Key revoked
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIKeyRevoked'
         '401':
           $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/AlreadyRevoked'
 
   /customers:
     post:
       tags: [Customers]
       summary: Create customer
       operationId: createCustomer
-      description: Requires business Bearer token. Returns unique customer api_key once.
+      description: Creates a customer for the authenticated business.
       requestBody:
         required: true
         content:
@@ -117,22 +119,20 @@ paths:
               $ref: '#/components/schemas/CreateCustomerRequest'
       responses:
         '201':
-          description: Customer created with API key
+          description: Customer created
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/CustomerCreated'
+                $ref: '#/components/schemas/Customer'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
     get:
       tags: [Customers]
       summary: List customers
       operationId: listCustomers
-      description: Business key lists all; customer key returns only self.
+      description: Lists customers for the authenticated business.
       responses:
         '200':
           description: Customer list
@@ -159,8 +159,6 @@ paths:
                 $ref: '#/components/schemas/Customer'
         '401':
           $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/NotFound'
 
@@ -169,7 +167,7 @@ paths:
       tags: [Invoices]
       summary: Create invoice (draft)
       operationId: createInvoice
-      description: Server computes total_cents. Customer key must match customer_id. Webhook invoice.created async.
+      description: Server computes total_cents. Dispatches webhook invoice.created asynchronously.
       requestBody:
         required: true
         content:
@@ -341,13 +339,10 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
     get:
       tags: [Webhooks]
       summary: List webhook endpoints
       operationId: listWebhookEndpoints
-      description: Requires business Bearer token.
       responses:
         '200':
           description: Webhook endpoints (no secret)
@@ -357,15 +352,13 @@ paths:
                 $ref: '#/components/schemas/WebhookEndpointListResponse'
         '401':
           $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
 
 components:
   securitySchemes:
     BearerAuth:
       type: http
       scheme: bearer
-      description: Business key (docker logs) or customer key (POST /customers response)
+      description: Business API key from seed logs or POST /api-keys (revoked keys return 401)
 
   parameters:
     UuidPathId:
@@ -394,10 +387,10 @@ components:
     CreateAPIKeyRequest:
       type: object
       properties:
-        customer_id:
+        revoke_key_id:
           type: string
           format: uuid
-          description: If set, creates customer-scoped key
+          description: Optional. Revoke this key after creating the new one (rotation).
 
     APIKeyCreated:
       type: object
@@ -417,14 +410,19 @@ components:
           type: string
           description: Ready-to-use Authorization header value
           example: Bearer sk_abc123...
-        scope:
+        created_at:
           type: string
-          enum: [business, customer]
-        customer_id:
+          format: date-time
+        message:
+          type: string
+
+    APIKeyRevoked:
+      type: object
+      properties:
+        id:
           type: string
           format: uuid
-          nullable: true
-        created_at:
+        revoked_at:
           type: string
           format: date-time
         message:
@@ -436,15 +434,11 @@ components:
         id:
           type: string
           format: uuid
-        key_prefix:
-          type: string
-        scope:
-          type: string
-          enum: [business, customer]
-        customer_id:
+        business_id:
           type: string
           format: uuid
-          nullable: true
+        key_prefix:
+          type: string
         revoked_at:
           type: string
           format: date-time
@@ -509,29 +503,6 @@ components:
           type: string
           format: date-time
 
-    CustomerCreated:
-      allOf:
-        - $ref: '#/components/schemas/Customer'
-        - type: object
-          properties:
-            api_key:
-              type: string
-              description: Customer-scoped secret; shown only once
-            token_type:
-              type: string
-              example: Bearer
-            authorization:
-              type: string
-              example: Bearer sk_...
-            key_id:
-              type: string
-              format: uuid
-            scope:
-              type: string
-              example: customer
-            message:
-              type: string
-
     CustomerListResponse:
       type: object
       properties:
@@ -555,8 +526,8 @@ components:
         unit_amount_cents:
           type: integer
           format: int64
-          minimum: 0
-          description: Price per unit in cents
+          minimum: 1
+          description: Price per unit in cents (must be positive)
 
     LineItem:
       allOf:
@@ -797,6 +768,12 @@ components:
             $ref: '#/components/schemas/ErrorBody'
     IdempotencyConflict:
       description: Idempotency key reused with different body
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorBody'
+    AlreadyRevoked:
+      description: API key already revoked
       content:
         application/json:
           schema:

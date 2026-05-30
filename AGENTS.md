@@ -8,7 +8,7 @@ Instructions for AI agents (Cursor, Claude, etc.) working in this repository.
 
 Go 1.22 **Invoice & Payment Service** for the Dodo Payments take-home:
 
-- **API** (`cmd/api`) — Chi router, API key auth, customers, invoices, payments, webhooks
+- **API** (`cmd/api`) — Chi router, API key auth (create/list/revoke), customers, invoices, payments, webhooks
 - **Mock PSP** (`cmd/mock-psp`) — `POST /charge` on port 9090
 - **Postgres 16** — GORM AutoMigrate (no raw SQL migration files)
 - **Money** — `int64` cents only; never `float64` in money paths
@@ -55,7 +55,7 @@ internal/config/         env config (.env auto-loaded via godotenv)
 internal/db/             connect, pgcrypto, AutoMigrate
 internal/models/         all GORM models
 internal/middleware/     API key auth
-internal/handlers/       HTTP handlers (customers, invoices, payments, webhooks)
+internal/handlers/       HTTP handlers (apikeys, customers, invoices, payments, webhooks)
 internal/payment/        PSP HTTP client
 internal/webhook/        async HMAC delivery + retries
 tests/

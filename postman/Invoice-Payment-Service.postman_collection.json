@@ -2,7 +2,7 @@
   "info": {
     "_postman_id": "invoice-payment-service-collection",
     "name": "Invoice & Payment Service",
-    "description": "Invoice & Payment Service \u2014 single file (no separate environment).\n\nSETUP:\n1. docker compose up --build\n2. Collection \u2192 Variables tab \u2192 set apiKey = BUSINESS API KEY from logs\n3. Run folder 00 then 01 in order\n\nVariables in this collection: baseUrl, pspBaseUrl, apiKey, customerApiKey, customerId, invoiceId, webhookUrl",
+    "description": "Invoice & Payment Service \u2014 single collection file (no separate environment).\n\nSETUP:\n1. go mod tidy && docker compose up --build\n2. Copy TEST API KEY from logs: docker compose logs api | grep \"TEST API KEY\"\n3. Collection \u2192 Variables \u2192 set apiKey (full sk_... value)\n4. Run folder 00 then 01 in order\n\nROTATE: POST Create API Key (rotate) \u2192 save new api_key \u2192 DELETE Revoke Old API Key.\n\nVariables: baseUrl, pspBaseUrl, apiKey, apiKeyId, customerId, invoiceId, webhookUrl, savedIdemKey",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "auth": {
@@ -30,11 +30,17 @@
       "key": "apiKey",
       "value": "",
       "type": "string",
-      "description": "Required: BUSINESS API KEY from docker logs (not customer key). Example: sk_50c227a909f58d1635aab180943f7bc3"
+      "description": "Required: TEST API KEY from docker compose logs after first boot (sk_...)"
     },
     {
-      "key": "customerApiKey",
+      "key": "apiKeyId",
       "value": "",
+      "type": "string",
+      "description": "ID of current api key (from List API Keys) for revoke on rotate"
+    },
+    {
+      "key": "savedIdemKey",
+      "value": "idem-key-fixed-001",
       "type": "string"
     },
     {
@@ -76,7 +82,7 @@
                 "health"
               ]
             },
-            "description": "No separate environment file.\n\n1. Click collection name \u2192 Variables tab\n2. Set apiKey from: docker logs invoice-service-api-1 | grep BUSINESS API KEY\n3. Run Health Check then 01 - Happy Path"
+            "description": "No separate environment file.\n\n1. go mod tidy && docker compose up --build\n2. Collection \u2192 Variables \u2192 apiKey = value from: docker compose logs api | grep \"TEST API KEY\"\n3. Run Health Check, then 01 - Happy Path\n\nPostgres on host port 5433 (see README); API on 8080, mock PSP on 9090."
           },
           "event": [
             {
@@ -124,21 +130,49 @@
           ]
         },
         {
-          "name": "Create API Key (rotate)",
+          "name": "List API Keys",
           "request": {
-            "method": "POST",
-            "header": [],
+            "method": "GET",
             "url": {
               "raw": "{{baseUrl}}/api-keys",
               "protocol": "http",
-              "host": [
-                "localhost"
-              ],
+              "host": ["localhost"],
               "port": "8080",
-              "path": [
-                "api-keys"
-              ]
+              "path": ["api-keys"]
             }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "const data = pm.response.json().data || [];",
+                  "const active = data.find(k => !k.revoked_at);",
+                  "if (active) pm.collectionVariables.set('apiKeyId', active.id);"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Create API Key (rotate)",
+          "request": {
+            "method": "POST",
+            "header": [{"key": "Content-Type", "value": "application/json"}],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"revoke_key_id\": \"{{apiKeyId}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api-keys",
+              "protocol": "http",
+              "host": ["localhost"],
+              "port": "8080",
+              "path": ["api-keys"]
+            },
+            "description": "Creates new key. If apiKeyId is set, revokes the old key. Save api_key from response into collection variable apiKey."
           },
           "event": [
             {
@@ -147,7 +181,9 @@
                 "exec": [
                   "pm.test('Status 201', () => pm.response.to.have.status(201));",
                   "const j = pm.response.json();",
-                  "pm.test('has authorization', () => pm.expect(j.authorization).to.match(/^Bearer sk_/));"
+                  "pm.test('has api_key', () => pm.expect(j.api_key).to.match(/^sk_/));",
+                  "pm.collectionVariables.set('apiKey', j.api_key);",
+                  "pm.collectionVariables.set('apiKeyId', j.id);"
                 ],
                 "type": "text/javascript"
               }
@@ -155,21 +191,29 @@
           ]
         },
         {
-          "name": "List API Keys",
+          "name": "Revoke API Key by ID",
           "request": {
-            "method": "GET",
+            "method": "DELETE",
             "url": {
-              "raw": "{{baseUrl}}/api-keys",
+              "raw": "{{baseUrl}}/api-keys/{{apiKeyId}}",
               "protocol": "http",
-              "host": [
-                "localhost"
-              ],
+              "host": ["localhost"],
               "port": "8080",
-              "path": [
-                "api-keys"
-              ]
+              "path": ["api-keys", "{{apiKeyId}}"]
+            },
+            "description": "Revokes the key in apiKeyId. Use a different active key in apiKey variable before revoking the one you are testing."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));"
+                ],
+                "type": "text/javascript"
+              }
             }
-          }
+          ]
         }
       ]
     },
@@ -185,11 +229,8 @@
                 "exec": [
                   "pm.test('Status 201', () => pm.response.to.have.status(201));",
                   "const j = pm.response.json();",
-                  "pm.collectionVariables.set('customerId', j.id);",
-                  "if (j.api_key) {",
-                  "  pm.collectionVariables.set('customerApiKey', j.api_key);",
-                  "  console.log('Customer Bearer:', j.authorization);",
-                  "}"
+                  "pm.test('has id', () => pm.expect(j.id).to.be.a('string'));",
+                  "pm.collectionVariables.set('customerId', j.id);"
                 ],
                 "type": "text/javascript"
               }
@@ -292,7 +333,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"customer_id\": \"{{customerId}}\",\n  \"due_date\": \"2025-12-31\",\n  \"line_items\": [\n    { \"description\": \"Widget A\", \"quantity\": 2, \"unit_amount_cents\": 1500 },\n    { \"description\": \"Widget B\", \"quantity\": 1, \"unit_amount_cents\": 500 }\n  ]\n}"
+              "raw": "{\n  \"customer_id\": \"{{customerId}}\",\n  \"due_date\": \"2026-06-15\",\n  \"line_items\": [\n    { \"description\": \"Widget A\", \"quantity\": 2, \"unit_amount_cents\": 1500 },\n    { \"description\": \"Widget B\", \"quantity\": 1, \"unit_amount_cents\": 500 }\n  ]\n}"
             },
             "url": {
               "raw": "{{baseUrl}}/invoices",
@@ -484,7 +525,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"customer_id\": \"{{customerId}}\",\n  \"due_date\": \"2025-12-31\",\n  \"line_items\": [\n    { \"description\": \"Test Item\", \"quantity\": 1, \"unit_amount_cents\": 2000 }\n  ]\n}"
+              "raw": "{\n  \"customer_id\": \"{{customerId}}\",\n  \"due_date\": \"2026-06-15\",\n  \"line_items\": [\n    { \"description\": \"Test Item\", \"quantity\": 1, \"unit_amount_cents\": 2000 }\n  ]\n}"
             },
             "url": {
               "raw": "{{baseUrl}}/invoices",
@@ -682,7 +723,8 @@
               "listen": "test",
               "script": {
                 "exec": [
-                  "const c = pm.response.json().id;"
+                  "pm.test('Status 201', () => pm.response.to.have.status(201));",
+                  "pm.collectionVariables.set('customerId', pm.response.json().id);"
                 ],
                 "type": "text/javascript"
               }
@@ -719,7 +761,10 @@
             {
               "listen": "test",
               "script": {
-                "exec": [],
+                "exec": [
+                  "pm.test('Status 201', () => pm.response.to.have.status(201));",
+                  "pm.collectionVariables.set('invoiceId', pm.response.json().id);"
+                ],
                 "type": "text/javascript"
               }
             }
@@ -734,7 +779,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"customer_id\": \"{{customerId}}\",\n  \"due_date\": \"2025-12-31\",\n  \"line_items\": [{ \"description\": \"X\", \"quantity\": 1, \"unit_amount_cents\": 1000 }]\n}"
+              "raw": "{\n  \"customer_id\": \"{{customerId}}\",\n  \"due_date\": \"2026-06-15\",\n  \"line_items\": [{ \"description\": \"X\", \"quantity\": 1, \"unit_amount_cents\": 1000 }]\n}"
             },
             "url": {
               "raw": "{{baseUrl}}/invoices",
@@ -874,6 +919,52 @@
           }
         },
         {
+          "name": "Pay - Idempotency Conflict (422)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 422', () => pm.response.to.have.status(422));",
+                  "const err = pm.response.json().error;",
+                  "pm.test('idempotency_conflict', () => pm.expect(err.code).to.eql('idempotency_conflict'));"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{savedIdemKey}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"card_token\": \"tok_card_declined\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/invoices/{{invoiceId}}/pay",
+              "protocol": "http",
+              "host": [
+                "localhost"
+              ],
+              "port": "8080",
+              "path": [
+                "invoices",
+                "{{invoiceId}}",
+                "pay"
+              ]
+            }
+          }
+        },
+        {
           "name": "Pay on Paid Invoice (expect 409)",
           "event": [
             {
@@ -986,7 +1077,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"customer_id\": \"{{customerId}}\",\n  \"due_date\": \"2025-12-31\",\n  \"line_items\": [{ \"description\": \"Void me\", \"quantity\": 1, \"unit_amount_cents\": 500 }]\n}"
+              "raw": "{\n  \"customer_id\": \"{{customerId}}\",\n  \"due_date\": \"2026-06-15\",\n  \"line_items\": [{ \"description\": \"Void me\", \"quantity\": 1, \"unit_amount_cents\": 500 }]\n}"
             },
             "url": {
               "raw": "{{baseUrl}}/invoices",
@@ -1190,8 +1281,8 @@
         "type": "text/javascript",
         "exec": [
           "const key = pm.collectionVariables.get('apiKey');",
-          "if ((!key || key === 'PASTE_BUSINESS_API_KEY_HERE') && pm.request.auth && pm.request.auth.type === 'bearer') {",
-          "  console.warn('Set apiKey: Collection \u2192 Variables \u2192 apiKey');",
+          "if ((!key || key.startsWith('PASTE_')) && pm.request.auth && pm.request.auth.type === 'bearer') {",
+          "  console.warn('Set apiKey: docker compose logs api | grep TEST API KEY');",
           "}"
         ]
       }

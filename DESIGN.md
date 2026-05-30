@@ -181,10 +181,10 @@ Total budget: 5 attempts, ~2.5 hours. After exhaustion, `webhook_delivery.status
 |--------|--------|
 | **Generation** | 32 cryptographically random bytes → hex → prefix `sk_` (67 characters total) |
 | **Storage** | `key_prefix` (first 11 chars) for lookup + `key_hash` (SHA-256 hex of full key) for verification. Raw key is **never stored**. |
-| **Transmission** | Shown exactly once: at seed on first boot (logged to stdout). Subsequent requests use `Authorization: Bearer <key>` over HTTPS. |
-| **Rotation** | Issue a new key for the same business, then revoke the old one (set `revoked_at`). Both keys work during the overlap window. |
-| **Revocation** | Set `revoked_at` timestamp. Auth middleware filters `WHERE revoked_at IS NULL`. |
-| **Blast radius** | One key → one `business_id`. Compromise exposes only that tenant's data. Cross-tenant access is impossible by design. |
+| **Transmission** | Shown once: seed log (`TEST API KEY`) or `POST /api-keys` response (`api_key` field). Use `Authorization: Bearer <key>`. |
+| **Rotation** | `POST /api-keys` with optional `revoke_key_id` to mint a new key and revoke the old one in one call; or create new, update clients, then `DELETE /api-keys/{id}`. |
+| **Revocation** | `DELETE /api-keys/{id}` sets `revoked_at`. Auth middleware uses `WHERE revoked_at IS NULL` — revoked keys return **401** immediately. |
+| **Blast radius** | One key → one `business_id`. Compromise exposes only that tenant's data. |
 
 ## 6. What I Cut and Why
 
