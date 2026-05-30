@@ -2,7 +2,12 @@
 
 ## Demo Video
 
-> 📹 [Loom link — add before submission]
+> 
+Loom Link:
+https://www.loom.com/share/f08588322bde428bb219a4f3f831afd3
+
+Drive Link:
+https://drive.google.com/file/d/1HAzij3W2gheVK2upIWNL1qVnZ7FV96sL/view?usp=sharing
 
 ## Language Choice
 
