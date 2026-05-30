@@ -5,7 +5,8 @@ info:
     Dodo Payments take-home — Invoice & Payment Service.
 
     - **Auth:** `Authorization: Bearer <api_key>` on all routes except `/health`
-    - **API keys:** seeded on first boot (`TEST API KEY` in logs); rotate via `POST /api-keys` + `DELETE /api-keys/{id}`
+    - **First API key:** `POST /bootstrap` (no auth) when no active keys; or `TEST API KEY` in logs on first empty DB only
+    - **Rotate:** `POST /api-keys` + optional `revoke_key_id`, or `DELETE /api-keys/{id}` (requires existing Bearer token)
     - **Revoked keys:** return `401` immediately (`revoked_at` set)
     - **Money:** integer cents (`int64`); server computes invoice totals
     - **Pay:** requires `Idempotency-Key` header; 10s PSP timeout
@@ -45,13 +46,38 @@ paths:
               schema:
                 $ref: '#/components/schemas/HealthResponse'
 
+  /bootstrap:
+    post:
+      tags: [API Keys]
+      summary: Bootstrap first API key (no auth)
+      operationId: bootstrapAPIKey
+      security: []
+      description: |
+        Creates the first API key when no active keys exist. No Bearer token required.
+        Returns 409 if an active key already exists. Use POST /api-keys to rotate after bootstrap.
+      responses:
+        '201':
+          description: First API key created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIKeyCreated'
+        '409':
+          description: Active API key already exists
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+
   /api-keys:
     post:
       tags: [API Keys]
       summary: Create API key
       operationId: createAPIKey
       description: |
+        **Requires Bearer token** (bootstrap key from seed logs, or a prior key).
         Creates a new business API key (secret shown once). Optional `revoke_key_id` revokes the old key in the same request for rotation.
+        The first key is **not** created here — see seed `TEST API KEY` in API logs when `SEED_DATA=true`.
       requestBody:
         content:
           application/json:

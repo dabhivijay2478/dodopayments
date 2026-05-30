@@ -181,7 +181,8 @@ Total budget: 5 attempts, ~2.5 hours. After exhaustion, `webhook_delivery.status
 |--------|--------|
 | **Generation** | 32 cryptographically random bytes → hex → prefix `sk_` (67 characters total) |
 | **Storage** | `key_prefix` (first 11 chars) for lookup + `key_hash` (SHA-256 hex of full key) for verification. Raw key is **never stored**. |
-| **Transmission** | Shown once: seed log (`TEST API KEY`) or `POST /api-keys` response (`api_key` field). Use `Authorization: Bearer <key>`. |
+| **First key (bootstrap)** | `POST /bootstrap` (no auth) when zero active keys; also auto-seed logs `TEST API KEY` on first empty DB only. |
+| **Transmission** | Bootstrap: copy from logs. Rotation: `POST /api-keys` returns `api_key` once. Use `Authorization: Bearer <key>`. |
 | **Rotation** | `POST /api-keys` with optional `revoke_key_id` to mint a new key and revoke the old one in one call; or create new, update clients, then `DELETE /api-keys/{id}`. |
 | **Revocation** | `DELETE /api-keys/{id}` sets `revoked_at`. Auth middleware uses `WHERE revoked_at IS NULL` — revoked keys return **401** immediately. |
 | **Blast radius** | One key → one `business_id`. Compromise exposes only that tenant's data. |

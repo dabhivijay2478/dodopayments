@@ -2,7 +2,6 @@ package main
 
 import (
 	"encoding/json"
-	"fmt"
 	"log"
 	"net/http"
 
@@ -36,10 +35,13 @@ func main() {
 			} else if _, fullKey, err := handlers.IssueAPIKey(business.ID); err != nil {
 				log.Printf("seed api key failed: %v", err)
 			} else {
-				fmt.Printf("\n=============================\n")
-				fmt.Printf("TEST API KEY: %s\n", fullKey)
-				fmt.Printf("=============================\n\n")
+				log.Printf("=============================")
+				log.Printf("TEST API KEY: %s", fullKey)
+				log.Printf("=============================")
+				log.Printf("Or call POST http://localhost:%s/bootstrap (no auth) to get a key in JSON", cfg.Port)
 			}
+		} else {
+			log.Printf("seed skipped: business already exists — use POST /bootstrap if no active API key, or POST /api-keys to rotate")
 		}
 	}
 
@@ -50,6 +52,7 @@ func main() {
 	r.Get("/health", func(w http.ResponseWriter, r *http.Request) {
 		respondJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 	})
+	r.Post("/bootstrap", handlers.Bootstrap)
 
 	r.Group(func(r chi.Router) {
 		r.Use(middleware.AuthMiddleware)

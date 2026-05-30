@@ -20,17 +20,32 @@ docker compose up --build
 
 `docker compose up` needs no manual DB setup: Postgres, API, and mock PSP start together. The API container talks to Postgres on the Docker network (`postgres:5432`). From your **host** (tests, `go run`), use **port 5433** in `.env` so you do not clash with another Postgres on 5432.
 
-On first boot, the API prints a test key:
+### First API key (bootstrap)
 
+You **cannot** use `POST /api-keys` without already having a key. Get the first key in either way:
+
+**Option A — API call (recommended, works in Postman):**
+
+```bash
+curl -s -X POST http://localhost:8080/bootstrap
 ```
-=============================
-TEST API KEY: sk_xxxx
-=============================
+
+No `Authorization` header. Returns `201` with `api_key` when no active keys exist.  
+Postman: run **00 → First API Key - POST /bootstrap** — it saves `apiKey` automatically.
+
+**Option B — Docker logs (only on first empty database):**
+
+```bash
+docker compose logs api | grep "TEST API KEY"
 ```
 
-Use it as `Authorization: Bearer <key>` on all routes except `GET /health`.
+If this is empty, the DB was already seeded — use **Option A** or reset: `docker compose down -v && docker compose up --build`.
 
-### Rotate API key
+Use the key as: `Authorization: Bearer sk_...`
+
+`POST /api-keys` is for **rotation** after you have a working key.
+
+### Rotate API key (after you have a bootstrap key)
 
 1. Create a new key (optionally revoke the old one in the same request):
 
@@ -233,4 +248,4 @@ Client ──▶ chi router ──▶ AuthMiddleware ──▶ Handler
 
 ## Postman
 
-Import `postman/Invoice-Payment-Service.postman_collection.json` (File import, not Raw text). Set collection variable `apiKey` from `docker compose logs api | grep "TEST API KEY"`. Run folders **00** then **01** in order. Folder **00** includes API key create/list/revoke for rotation.
+Import `postman/Invoice-Payment-Service.postman_collection.json` (File import, not Raw text). Run **00 → First API Key - POST /bootstrap** first (sets `apiKey` automatically). Then **01 - Happy Path**.

@@ -12,9 +12,43 @@ All routes except `GET /health` require:
 Authorization: Bearer <api_key>
 ```
 
-API keys are scoped to a **business**. The full secret is shown only at creation (seed or `POST /api-keys`). The server stores `key_prefix` + SHA-256 hash only.
+### How you get the **first** API key (bootstrap)
 
-**Rotation:** create a new key, switch clients to it, then revoke the old key. Revoked keys return `401` immediately.
+| Method | When to use |
+|--------|-------------|
+| **`POST /bootstrap`** (no auth) | **Recommended.** Works when no active API keys exist. Returns `api_key` in JSON. |
+| **Docker logs** | Only when DB is empty on first `docker compose up` (`SEED_DATA=true`). |
+
+```bash
+curl -s -X POST http://localhost:8080/bootstrap
+```
+
+Response `201`:
+
+```json
+{
+  "api_key": "sk_...",
+  "authorization": "Bearer sk_...",
+  "id": "...",
+  "message": "First API key created. Store api_key now; it is not shown again."
+}
+```
+
+If `409 already_bootstrapped`, an active key already exists — use `POST /api-keys` to rotate (with your current key) or `docker compose down -v` for a fresh DB.
+
+Logs (optional): `docker compose logs api | grep "TEST API KEY"` — empty if the database was already seeded.
+
+**Important:** `POST /api-keys` requires Bearer auth and is for **rotation only**.
+
+### Rotate API keys (after bootstrap)
+
+| Method | Path | Purpose |
+|--------|------|---------|
+| `POST` | `/api-keys` | Mint new key; optional `revoke_key_id` in body |
+| `GET` | `/api-keys` | List keys (prefix + revoked status; no secrets) |
+| `DELETE` | `/api-keys/{id}` | Revoke old key → **401** on next use |
+
+Storage: `key_prefix` (first 11 chars) + SHA-256 `key_hash`. Full secret never stored after creation.
 
 ## Error Format
 
@@ -38,6 +72,20 @@ Payment failures use a separate shape:
 
 ---
 
+## POST /bootstrap
+
+**No authentication.** Creates the first business API key when no active (non-revoked) keys exist.
+
+**Response `201`** — same shape as `POST /api-keys` (`api_key`, `authorization`, `id`, …)
+
+**Response `409`** — `already_bootstrapped` if an active key already exists
+
+```bash
+curl -s -X POST http://localhost:8080/bootstrap
+```
+
+---
+
 ## GET /health
 
 No auth.
@@ -56,7 +104,9 @@ curl -s http://localhost:8080/health
 
 ## POST /api-keys
 
-Create a new business API key. Optional body revokes an old key in the same request.
+**Requires:** existing Bearer token (from bootstrap logs or a previous rotation).
+
+Create a **new** business API key. Optional body revokes an old key in the same request. Does **not** replace bootstrap — use this only when you already have a working key.
 
 **Body (optional)**
 

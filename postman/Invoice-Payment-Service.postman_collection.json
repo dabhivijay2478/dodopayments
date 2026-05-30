@@ -2,7 +2,7 @@
   "info": {
     "_postman_id": "invoice-payment-service-collection",
     "name": "Invoice & Payment Service",
-    "description": "Invoice & Payment Service \u2014 single collection file (no separate environment).\n\nSETUP:\n1. go mod tidy && docker compose up --build\n2. Copy TEST API KEY from logs: docker compose logs api | grep \"TEST API KEY\"\n3. Collection \u2192 Variables \u2192 set apiKey (full sk_... value)\n4. Run folder 00 then 01 in order\n\nROTATE: POST Create API Key (rotate) \u2192 save new api_key \u2192 DELETE Revoke Old API Key.\n\nVariables: baseUrl, pspBaseUrl, apiKey, apiKeyId, customerId, invoiceId, webhookUrl, savedIdemKey",
+    "description": "Invoice & Payment Service \u2014 single collection file (no separate environment).\n\nFIRST API KEY:\n1. docker compose up --build\n2. Run \"First API Key - POST /bootstrap\" (no auth) \u2014 saves apiKey automatically\n3. Or fresh DB only: docker compose logs api | grep \"TEST API KEY\"\n\nROTATE (needs apiKey): List API Keys \u2192 Create API Key (rotate).\n\nVariables: baseUrl, pspBaseUrl, apiKey, apiKeyId, customerId, invoiceId, webhookUrl, savedIdemKey",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "auth": {
@@ -30,7 +30,7 @@
       "key": "apiKey",
       "value": "",
       "type": "string",
-      "description": "Required: TEST API KEY from docker compose logs after first boot (sk_...)"
+      "description": "Set automatically by POST /bootstrap, or paste from docker logs on first empty DB."
     },
     {
       "key": "apiKeyId",
@@ -82,7 +82,7 @@
                 "health"
               ]
             },
-            "description": "No separate environment file.\n\n1. go mod tidy && docker compose up --build\n2. Collection \u2192 Variables \u2192 apiKey = value from: docker compose logs api | grep \"TEST API KEY\"\n3. Run Health Check, then 01 - Happy Path\n\nPostgres on host port 5433 (see README); API on 8080, mock PSP on 9090."
+            "description": "See request: First API Key - from Docker logs.\n\nPostgres host port 5433; API 8080; mock PSP 9090."
           },
           "event": [
             {
@@ -92,6 +92,46 @@
                 "exec": [
                   "pm.test('API up', () => pm.response.to.have.status(200));"
                 ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "First API Key - POST /bootstrap",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/bootstrap",
+              "protocol": "http",
+              "host": ["localhost"],
+              "port": "8080",
+              "path": ["bootstrap"]
+            },
+            "description": "Gets the first API key (no Bearer token needed).\n\nWorks when no active API keys exist (fresh DB or all keys revoked).\nReturns 409 if an active key already exists — use POST /api-keys to rotate instead.\n\nOn success, test script saves api_key into collection variable apiKey."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 201) {",
+                  "  const j = pm.response.json();",
+                  "  pm.test('got api_key', () => pm.expect(j.api_key).to.match(/^sk_/));",
+                  "  pm.collectionVariables.set('apiKey', j.api_key);",
+                  "  pm.collectionVariables.set('apiKeyId', j.id);",
+                  "  console.log('apiKey saved to collection variables');",
+                  "} else if (pm.response.code === 409) {",
+                  "  pm.test('already bootstrapped', () => true);",
+                  "  console.warn('Active key exists. Set apiKey manually or use Create API Key (rotate).');",
+                  "} else {",
+                  "  pm.test('bootstrap failed', () => { throw new Error(pm.response.text()); });",
+                  "}"
+                ],
+                "type": "text/javascript"
               }
             }
           ]
@@ -172,7 +212,7 @@
               "port": "8080",
               "path": ["api-keys"]
             },
-            "description": "Creates new key. If apiKeyId is set, revokes the old key. Save api_key from response into collection variable apiKey."
+            "description": "ROTATION ONLY — requires apiKey already set from Docker logs (bootstrap).\n\nCreates new key. If apiKeyId is set, revokes the old key. Save api_key from response into collection variable apiKey."
           },
           "event": [
             {
