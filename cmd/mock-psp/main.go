@@ -6,11 +6,15 @@ import (
 	"net/http"
 	"os"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 type chargeRequest struct {
 	CardToken   string `json:"card_token"`
 	AmountCents int64  `json:"amount_cents"`
+	Currency    string `json:"currency"`
+	InvoiceID   string `json:"invoice_id"`
 }
 
 type chargeResponse struct {
@@ -36,44 +40,60 @@ func main() {
 	log.Fatal(http.ListenAndServe(":"+port, mux))
 }
 
+func writeJSON(w http.ResponseWriter, status int, v interface{}) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	json.NewEncoder(w).Encode(v)
+}
+
 func handleCharge(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
 		return
 	}
 
 	var req chargeRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]string{"error": "invalid request"})
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid request"})
 		return
 	}
-
-	w.Header().Set("Content-Type", "application/json")
+	if req.CardToken == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "card_token is required"})
+		return
+	}
 
 	switch req.CardToken {
 	case "tok_success":
 		time.Sleep(100 * time.Millisecond)
-		json.NewEncoder(w).Encode(chargeResponse{Status: "succeeded", PSPRef: ""})
+		writeJSON(w, http.StatusOK, chargeResponse{
+			Status: "succeeded",
+			PSPRef: uuid.New().String(),
+		})
 
 	case "tok_insufficient_funds":
 		time.Sleep(100 * time.Millisecond)
-		json.NewEncoder(w).Encode(chargeResponse{Status: "failed", Code: "insufficient_funds"})
+		writeJSON(w, http.StatusOK, chargeResponse{Status: "failed", Code: "insufficient_funds"})
 
 	case "tok_card_declined":
 		time.Sleep(100 * time.Millisecond)
-		json.NewEncoder(w).Encode(chargeResponse{Status: "failed", Code: "card_declined"})
+		writeJSON(w, http.StatusOK, chargeResponse{Status: "failed", Code: "card_declined"})
 
 	case "tok_timeout":
 		time.Sleep(30 * time.Second)
-		json.NewEncoder(w).Encode(chargeResponse{Status: "succeeded", PSPRef: ""})
+		writeJSON(w, http.StatusOK, chargeResponse{
+			Status: "succeeded",
+			PSPRef: uuid.New().String(),
+		})
 
 	case "tok_network_error":
-		w.WriteHeader(http.StatusInternalServerError)
+		// Simulated PSP outage — 500 is intentional (API maps this to 402 network_error).
+		writeJSON(w, http.StatusInternalServerError, map[string]string{
+			"status":  "failed",
+			"code":    "network_error",
+			"message": "simulated PSP network failure",
+		})
 
 	default:
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]string{"error": "unknown token"})
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "unknown token"})
 	}
 }

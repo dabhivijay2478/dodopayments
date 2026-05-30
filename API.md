@@ -1,5 +1,25 @@
 # API Reference
 
+Machine-readable spec: [`openapi.yaml`](openapi.yaml). Interactive testing: [`postman/Invoice-Payment-Service.postman_collection.json`](postman/Invoice-Payment-Service.postman_collection.json).
+
+## Postman collection
+
+Import the collection (no separate environment). Collection auth uses `{{apiKey}}` after bootstrap.
+
+| Folder | Run when | What it covers |
+|--------|----------|----------------|
+| **00 - Setup** | First | `POST /bootstrap` → saves `apiKey`; **Health Check** (single `/health` request); list/rotate API keys |
+| **01 - Happy Path** | After 00, in order | Customer → invoice → finalize → pay (`tok_success`) |
+| **02 - Payment Failures** | After happy path | 402 declines, timeout, `network_error` |
+| **03 - Idempotency & State** | Anytime with open invoice | Idempotency replay/conflict; void; 409 terminal states |
+| **04 - Invoices (misc)** | Optional | List/filter, void |
+| **05 - Webhooks** | Before pay to see events | Register/list endpoints; set `webhookUrl` (e.g. webhook.site) |
+| **06 - Mock PSP (direct)** | Optional | `POST :9090/charge` — not through invoice API |
+
+**Variables:** `baseUrl` (8080), `pspBaseUrl` (9090), `apiKey`, `apiKeyId`, `customerId`, `invoiceId`, `webhookUrl`, `savedIdemKey`.
+
+**Note:** Re-running bootstrap clears `customerId` / `invoiceId` — run **01** again.
+
 ## Base URL
 
 `http://localhost:8080` (Docker / local)
@@ -34,7 +54,7 @@ Response `201`:
 }
 ```
 
-If `409 already_bootstrapped`, an active key already exists — use `POST /api-keys` to rotate (with your current key) or `docker compose down -v` for a fresh DB.
+If `409 already_bootstrapped`, set `BOOTSTRAP_ALLOW_FORCE=true` (enabled in docker-compose) and call again — old active keys are revoked and a new `api_key` is returned. Or use `POST /api-keys` if you still have a working key.
 
 Logs (optional): `docker compose logs api | grep "TEST API KEY"` — empty if the database was already seeded.
 
@@ -332,6 +352,46 @@ curl -s -X POST http://localhost:8080/invoices/$ID/pay \
 
 ---
 
+## Webhooks
+
+Outbound only — your server registers a URL; the invoice API POSTs events asynchronously (does not block pay/create responses).
+
+### Events
+
+| Event | When |
+|-------|------|
+| `invoice.created` | After `POST /invoices` commits |
+| `invoice.paid` | After successful `POST /invoices/{id}/pay` |
+| `invoice.payment_failed` | After failed pay (402 path: decline, timeout, network_error, etc.) |
+
+### Delivery payload
+
+```json
+{
+  "event": "invoice.paid",
+  "created_at": "2026-05-30T10:00:00Z",
+  "data": { "invoice_id": "...", "psp_reference": "..." }
+}
+```
+
+### Headers (verify on your receiver)
+
+| Header | Value |
+|--------|--------|
+| `Content-Type` | `application/json` |
+| `X-Webhook-Signature` | `sha256=` + HMAC-SHA256(hex) of **raw body**, using endpoint `secret` |
+| `X-Webhook-Timestamp` | Unix seconds |
+
+Reject replays if `|now - timestamp| > 5 minutes`.
+
+### Retries
+
+5 attempts: immediate, +30s, +5m, +30m, +2h. Success = HTTP 2xx from your URL. Exhausted deliveries stay `failed` in DB (no public replay API in this take-home).
+
+Postman: folder **05 - Webhooks**; use [webhook.site](https://webhook.site) for `webhookUrl`, then run happy path pay to see events.
+
+---
+
 ## POST /webhook-endpoints
 
 **Body:** `{ "url": "https://example.com/hooks" }` (must start with `http`)
@@ -367,7 +427,7 @@ curl -s http://localhost:8080/webhook-endpoints -H "Authorization: Bearer $API_K
 | tok_insufficient_funds | 200 failed `insufficient_funds` |
 | tok_card_declined | 200 failed `card_declined` |
 | tok_timeout | sleeps 30s then succeeded (API times out at 10s) |
-| tok_network_error | 500 |
+| tok_network_error | **500 on purpose** (simulated outage; invoice pay → 402 `network_error`) |
 | other | 400 unknown token |
 
 ---

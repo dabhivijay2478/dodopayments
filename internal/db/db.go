@@ -3,12 +3,14 @@ package db
 import (
 	"fmt"
 	"log"
+	"os"
 	"time"
 
 	"invoice-service/internal/models"
 
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
+	"gorm.io/gorm/logger"
 )
 
 var DB *gorm.DB
@@ -16,7 +18,13 @@ var DB *gorm.DB
 func Connect(dsn string) error {
 	var err error
 	for i := 0; i < 10; i++ {
-		DB, err = gorm.Open(postgres.Open(dsn), &gorm.Config{})
+		DB, err = gorm.Open(postgres.Open(dsn), &gorm.Config{
+			Logger: logger.New(log.New(os.Stdout, "\r\n", log.LstdFlags), logger.Config{
+				SlowThreshold:             time.Second,
+				LogLevel:                  logger.Warn,
+				IgnoreRecordNotFoundError: true,
+			}),
+		})
 		if err == nil {
 			break
 		}

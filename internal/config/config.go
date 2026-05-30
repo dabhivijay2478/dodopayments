@@ -7,10 +7,11 @@ import (
 )
 
 type Config struct {
-	DatabaseURL string
-	Port        string
-	PSPBaseURL  string
-	SeedData    bool
+	DatabaseURL         string
+	Port                string
+	PSPBaseURL          string
+	SeedData            bool
+	BootstrapAllowForce bool
 }
 
 func getEnvOrDefault(key, defaultVal string) string {
@@ -26,9 +27,10 @@ func Load() Config {
 	_ = godotenv.Load()
 
 	return Config{
-		DatabaseURL: os.Getenv("DATABASE_URL"),
-		Port:        getEnvOrDefault("PORT", "8080"),
-		PSPBaseURL:  getEnvOrDefault("PSP_BASE_URL", "http://localhost:9090"),
-		SeedData:    os.Getenv("SEED_DATA") == "true",
+		DatabaseURL:         os.Getenv("DATABASE_URL"),
+		Port:                getEnvOrDefault("PORT", "8080"),
+		PSPBaseURL:          getEnvOrDefault("PSP_BASE_URL", "http://localhost:9090"),
+		SeedData:            os.Getenv("SEED_DATA") == "true",
+		BootstrapAllowForce: os.Getenv("BOOTSTRAP_ALLOW_FORCE") == "true",
 	}
 }

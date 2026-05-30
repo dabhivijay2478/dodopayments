@@ -30,7 +30,8 @@ You **cannot** use `POST /api-keys` without already having a key. Get the first 
 curl -s -X POST http://localhost:8080/bootstrap
 ```
 
-No `Authorization` header. Returns `201` with `api_key` when no active keys exist.  
+No `Authorization` header. Returns `201` with `api_key`.  
+With `BOOTSTRAP_ALLOW_FORCE=true` in docker-compose (default), this **also works if you lost the old key** — it revokes previous active keys and issues a new one.  
 Postman: run **00 → First API Key - POST /bootstrap** — it saves `apiKey` automatically.
 
 **Option B — Docker logs (only on first empty database):**

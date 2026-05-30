@@ -4,14 +4,28 @@ info:
   description: |
     Dodo Payments take-home — Invoice & Payment Service.
 
-    - **Auth:** `Authorization: Bearer <api_key>` on all routes except `/health`
-    - **First API key:** `POST /bootstrap` (no auth) when no active keys; or `TEST API KEY` in logs on first empty DB only
-    - **Rotate:** `POST /api-keys` + optional `revoke_key_id`, or `DELETE /api-keys/{id}` (requires existing Bearer token)
-    - **Revoked keys:** return `401` immediately (`revoked_at` set)
-    - **Money:** integer cents (`int64`); server computes invoice totals
-    - **Pay:** requires `Idempotency-Key` header; 10s PSP timeout
-    - **Mock PSP:** http://localhost:9090 (host) or http://mock-psp:9090 (docker network)
-    - **Testing:** see README.md
+    **Postman:** Import `postman/Invoice-Payment-Service.postman_collection.json`.
+    Run folder **00 - Setup** → **First API Key - POST /bootstrap**, then **01 - Happy Path** in order.
+    Collection variables: `baseUrl`, `pspBaseUrl`, `apiKey`, `customerId`, `invoiceId`, `webhookUrl`.
+
+    **Auth:** `Authorization: Bearer <api_key>` on all routes except `GET /health` and `POST /bootstrap`.
+
+    **First API key:** `POST /bootstrap` (no auth). With `BOOTSTRAP_ALLOW_FORCE=true`, revokes active keys and mints a new one.
+    Optional: `TEST API KEY` in docker logs on first empty DB only.
+
+    **Rotate:** `POST /api-keys` + optional `revoke_key_id`, or `DELETE /api-keys/{id}`. Revoked keys → `401`.
+
+    **Money:** integer cents (`int64`); server computes invoice totals.
+
+    **Pay:** `Idempotency-Key` required; 10s PSP timeout; invoice must be `open`.
+
+    **Webhooks:** Register `POST /webhook-endpoints`. Events `invoice.created`, `invoice.paid`,
+    `invoice.payment_failed` — async POST with `X-Webhook-Signature` (HMAC-SHA256) and `X-Webhook-Timestamp`.
+    Up to 5 delivery attempts (~2.5h). See `API.md` § Webhooks.
+
+    **Mock PSP:** `http://localhost:9090` — `tok_success` (200), `tok_network_error` (500 intentional).
+
+    **Ports:** API 8080, PSP 9090, Postgres host 5433. Curl examples: `API.md`.
   version: 1.0.0
   contact:
     name: Invoice Service
@@ -24,12 +38,19 @@ servers:
 
 tags:
   - name: Health
+    description: Liveness check; no authentication.
   - name: API Keys
+    description: Bootstrap first key, create/rotate/revoke business API keys.
   - name: Customers
+    description: Create and fetch customers scoped to the authenticated business.
   - name: Invoices
+    description: Draft invoices, finalize, void, list; server computes totals in cents.
   - name: Payments
+    description: Pay open invoices via mock PSP; idempotency and row locking.
   - name: Webhooks
+    description: Register callback URLs; signed async delivery on invoice events.
   - name: Mock PSP
+    description: Direct mock processor endpoints (normally called by the API, not clients).
 
 paths:
   /health:
@@ -37,6 +58,7 @@ paths:
       tags: [Health]
       summary: Health check
       operationId: getHealth
+      description: Returns service liveness. No Bearer token. Postman folder **00 - Setup** → **Health Check**.
       security: []
       responses:
         '200':
@@ -347,7 +369,14 @@ paths:
       tags: [Webhooks]
       summary: Register webhook endpoint
       operationId: createWebhookEndpoint
-      description: Requires business Bearer token. Secret returned only at creation time.
+      description: |
+        Requires Bearer token. Body `url` must start with `http`.
+        Response includes `secret` once — store it to verify `X-Webhook-Signature` (HMAC-SHA256 of raw JSON body).
+
+        Events (async, non-blocking): `invoice.created`, `invoice.paid`, `invoice.payment_failed`.
+        Payload shape: `{ "event", "created_at", "data" }`.
+        Headers on delivery: `X-Webhook-Signature: sha256=<hex>`, `X-Webhook-Timestamp: <unix>`.
+        Retries: immediate, +30s, +5m, +30m, +2h (5 attempts total).
       requestBody:
         required: true
         content:
@@ -369,6 +398,7 @@ paths:
       tags: [Webhooks]
       summary: List webhook endpoints
       operationId: listWebhookEndpoints
+      description: Lists registered URLs for the business. Does not return signing secrets.
       responses:
         '200':
           description: Webhook endpoints (no secret)

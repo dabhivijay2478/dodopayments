@@ -47,3 +47,4 @@ services:
       PSP_BASE_URL: http://mock-psp:9090
       PORT: "8080"
       SEED_DATA: "true"
+      BOOTSTRAP_ALLOW_FORCE: "true"

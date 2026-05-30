@@ -2,7 +2,7 @@
   "info": {
     "_postman_id": "invoice-payment-service-collection",
     "name": "Invoice & Payment Service",
-    "description": "Invoice & Payment Service \u2014 single collection file (no separate environment).\n\nFIRST API KEY:\n1. docker compose up --build\n2. Run \"First API Key - POST /bootstrap\" (no auth) \u2014 saves apiKey automatically\n3. Or fresh DB only: docker compose logs api | grep \"TEST API KEY\"\n\nROTATE (needs apiKey): List API Keys \u2192 Create API Key (rotate).\n\nVariables: baseUrl, pspBaseUrl, apiKey, apiKeyId, customerId, invoiceId, webhookUrl, savedIdemKey",
+    "description": "# Invoice & Payment Service (Postman)\n\nSingle collection file — no separate environment file. Collection-level Bearer auth uses `{{apiKey}}`.\n\n## Quick start\n1. `docker compose up --build`\n2. Folder **00 - Setup** → **First API Key - POST /bootstrap** (no auth; saves `apiKey`)\n3. **Health Check** (optional)\n4. Folder **01 - Happy Path** — run requests **in order** (saves `customerId`, `invoiceId`)\n5. Folder **05 - Webhooks** — set `webhookUrl` to a [webhook.site](https://webhook.site) URL first\n\n## Folders\n| Folder | Purpose |\n|--------|--------|\n| 00 - Setup | Bootstrap, health, API key list/rotate |\n| 01 - Happy Path | Customer → invoice → finalize → pay (`tok_success`) |\n| 02 - Payment Failures | Declines, timeout, network error tokens |\n| 03 - Idempotency & State | Replay keys, void, invalid transitions |\n| 04 - Invoices (misc) | Extra invoice operations |\n| 05 - Webhooks | Register/list endpoints; events fire on pay/create |\n| 06 - Mock PSP (direct) | Call mock PSP `:9090` directly (not via invoice API) |\n\n## Variables\n`baseUrl` (8080), `pspBaseUrl` (9090), `apiKey`, `apiKeyId`, `customerId`, `invoiceId`, `webhookUrl`, `savedIdemKey`\n\n## Ports\nAPI **8080**, mock PSP **9090**, Postgres host **5433**.\n\nOpenAPI: `openapi.yaml` · curl reference: `API.md`",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "auth": {
@@ -61,41 +61,9 @@
   ],
   "item": [
     {
-      "name": "00 - Setup & Health",
+      "name": "00 - Setup",
+      "description": "Start here: bootstrap saves `apiKey`. Then Health Check. API key list/rotate needs Bearer.",
       "item": [
-        {
-          "name": "SETUP - Edit Collection Variables",
-          "request": {
-            "auth": {
-              "type": "noauth"
-            },
-            "method": "GET",
-            "header": [],
-            "url": {
-              "raw": "{{baseUrl}}/health",
-              "protocol": "http",
-              "host": [
-                "localhost"
-              ],
-              "port": "8080",
-              "path": [
-                "health"
-              ]
-            },
-            "description": "See request: First API Key - from Docker logs.\n\nPostgres host port 5433; API 8080; mock PSP 9090."
-          },
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "type": "text/javascript",
-                "exec": [
-                  "pm.test('API up', () => pm.response.to.have.status(200));"
-                ]
-              }
-            }
-          ]
-        },
         {
           "name": "First API Key - POST /bootstrap",
           "request": {
@@ -123,7 +91,9 @@
                   "  pm.test('got api_key', () => pm.expect(j.api_key).to.match(/^sk_/));",
                   "  pm.collectionVariables.set('apiKey', j.api_key);",
                   "  pm.collectionVariables.set('apiKeyId', j.id);",
-                  "  console.log('apiKey saved to collection variables');",
+                  "  pm.collectionVariables.unset('customerId');",
+                  "  pm.collectionVariables.unset('invoiceId');",
+                  "  console.log('apiKey saved — run 01 Happy Path again (old customer/invoice IDs are invalid)');",
                   "} else if (pm.response.code === 409) {",
                   "  pm.test('already bootstrapped', () => true);",
                   "  console.warn('Active key exists. Set apiKey manually or use Create API Key (rotate).');",
@@ -142,6 +112,7 @@
             "auth": {
               "type": "noauth"
             },
+            "description": "GET /health — no auth. Returns `{\"status\":\"ok\"}`. Only health endpoint in this collection.",
             "method": "GET",
             "header": [],
             "url": {
@@ -259,6 +230,7 @@
     },
     {
       "name": "01 - Happy Path (run in order)",
+      "description": "Run top to bottom after bootstrap. Tests save `customerId` and `invoiceId`. Pay uses `tok_success`.",
       "item": [
         {
           "name": "Create Customer",
@@ -507,6 +479,7 @@
     },
     {
       "name": "02 - Payment Failures",
+      "description": "402 payment failures; invoice stays `open`. Uses mock PSP tokens (decline, timeout, network_error).",
       "item": [
         {
           "name": "Setup - New Customer",
@@ -755,6 +728,7 @@
     },
     {
       "name": "03 - Idempotency & State",
+      "description": "Idempotency-Key replay (200/402) and conflicts (422). Invoice state machine (void, 409 on terminal).",
       "item": [
         {
           "name": "Setup Open Invoice for Idempotency",
@@ -1061,6 +1035,7 @@
     },
     {
       "name": "04 - Invoices (misc)",
+      "description": "List/filter invoices and void from draft or open.",
       "item": [
         {
           "name": "List Invoices (all)",
@@ -1166,6 +1141,7 @@
     },
     {
       "name": "05 - Webhooks",
+      "description": "Register callback URL (secret shown once). Events: invoice.created, invoice.paid, invoice.payment_failed — async POST with HMAC headers.",
       "item": [
         {
           "name": "Register Webhook Endpoint",
@@ -1227,6 +1203,7 @@
     },
     {
       "name": "06 - Mock PSP (direct)",
+      "description": "Bypass invoice API and hit mock PSP on :9090. `tok_network_error` returns 500 by design; use `tok_success` for 200.",
       "auth": {
         "type": "noauth"
       },
@@ -1257,6 +1234,7 @@
             "auth": {
               "type": "noauth"
             },
+            "description": "Expect HTTP 200 with status succeeded. Use this token on POST /invoices/{id}/pay for a real payment.",
             "method": "POST",
             "header": [
               {
@@ -1279,14 +1257,27 @@
                 "charge"
               ]
             }
-          }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('succeeded', () => pm.expect(pm.response.json().status).to.eql('succeeded'));"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
         },
         {
-          "name": "PSP Charge - tok_network_error",
+          "name": "PSP Charge - tok_network_error (expect 500)",
           "request": {
             "auth": {
               "type": "noauth"
             },
+            "description": "500 is CORRECT for tok_network_error — simulates PSP down. Invoice API returns 402 when paying with this token.",
             "method": "POST",
             "header": [
               {
@@ -1309,7 +1300,20 @@
                 "charge"
               ]
             }
-          }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 500 (expected for network_error)', () => pm.response.to.have.status(500));",
+                  "const j = pm.response.json();",
+                  "pm.test('network_error code', () => pm.expect(j.code).to.eql('network_error'));"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
         }
       ]
     }
