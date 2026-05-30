@@ -1,0 +1,65 @@
+---
+# Invoice & Payment Service — Cursor Rules
+
+## Language & framework
+- Go 1.22, chi router, GORM ORM, PostgreSQL
+- No Rust, no TypeScript, no other languages
+
+## Money — HARD RULE
+- ALL money values are int64 representing cents (e.g. 1000 = $10.00)
+- NEVER use float32, float64, or decimal for any money field
+- Column names must end in _cents (e.g. total_cents, unit_amount_cents)
+- Violating this rule is a critical bug
+
+## Database
+- Use GORM AutoMigrate only — never write raw SQL migration files
+- Always call CREATE EXTENSION IF NOT EXISTS pgcrypto before AutoMigrate
+- Primary keys: uuid.UUID with gorm:"type:uuid;primaryKey;default:gen_random_uuid()"
+- Money columns: gorm:"type:bigint;not null"
+
+## Payment handler rules (payments.go) — follow EXACTLY
+1. Check idempotency key FIRST before any DB transaction
+2. Use SELECT FOR UPDATE inside a transaction to lock the invoice row
+3. Insert payment_attempt with status="pending" BEFORE calling PSP
+4. Commit the transaction BEFORE calling PSP
+5. Set context.WithTimeout of 10 seconds on ALL PSP calls
+6. After PSP response: update attempt + invoice in separate DB calls (no transaction needed)
+7. NEVER call PSP inside a transaction
+
+## Concurrency
+- Row-level lock via raw SQL inside GORM transaction:
+  tx.Raw("SELECT * FROM invoices WHERE id = ? FOR UPDATE", id).Scan(&invoice)
+- Never use optimistic locking or advisory locks
+
+## Webhooks
+- ALWAYS dispatch webhooks in a goroutine: go webhook.Dispatch(...)
+- NEVER block the API response waiting for webhook delivery
+- Sign with HMAC-SHA256: X-Webhook-Signature: sha256=
+- Include X-Webhook-Timestamp header
+
+## Error responses
+- ALL errors use this exact shape:
+  {"error": {"code": "snake_case", "message": "Human readable"}}
+- Use respondError(w, status, code, message) helper from handlers/helpers.go
+- Never return plain text errors
+
+## State machine — enforce these and only these transitions
+  draft  → open          (POST /invoices/{id}/finalize)
+  draft  → void          (POST /invoices/{id}/void)
+  open   → paid          (POST /invoices/{id}/pay — PSP success)
+  open   → void          (POST /invoices/{id}/void)
+  open   → uncollectible (future: manual or dunning)
+  paid, void, uncollectible → NOTHING (terminal, reject all with 409)
+
+## Response format
+- All responses: Content-Type: application/json
+- Success: respond with the resource or { "data": [...], "count": N }
+- Use respondJSON(w, status, data) helper from handlers/helpers.go
+
+## Auth
+- All routes except GET /health require Authorization: Bearer 
+- Business ID from context: middleware.GetBusinessID(ctx)
+
+## No floats — reminder
+- Search for float before committing. If found anywhere in money path: fix it.
+---

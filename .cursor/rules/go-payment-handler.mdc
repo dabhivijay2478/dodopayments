@@ -1,0 +1,13 @@
+---
+description: Payment handler invariants
+globs: internal/handlers/payments.go
+alwaysApply: false
+---
+
+# Payment handler
+
+- Idempotency-Key required; check existing attempt before `Begin()`
+- `FOR UPDATE` + reject if state != open or in-flight pending/succeeded attempt
+- Commit pending attempt before `payment.DefaultClient.Charge` with 10s timeout
+- PSP failure → 402 `{status, code}`; success → update attempt + invoice state paid
+- Pay failures: invoice stays **open**

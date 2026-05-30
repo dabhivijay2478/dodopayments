@@ -1,0 +1,11 @@
+---
+description: HTTP handlers conventions
+globs: internal/handlers/**
+alwaysApply: false
+---
+
+# Handlers
+
+- Use `respondJSON` / `respondError` from helpers.go
+- `middleware.GetBusinessID(ctx)` for tenant scope
+- Invoice transitions return 409 `invalid_transition` or `invalid_state` per spec

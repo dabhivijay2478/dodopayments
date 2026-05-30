@@ -1,0 +1,11 @@
+---
+description: GORM models and database setup
+globs: internal/models/**,internal/db/**
+alwaysApply: false
+---
+
+# Models & DB
+
+- Eight models in `models.go`; money fields `gorm:"type:bigint;not null"`
+- `db.Connect`: retry 10×, pgcrypto extension, AutoMigrate all models
+- Server computes invoice `total_cents` from line items only

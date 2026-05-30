@@ -1,0 +1,36 @@
+---
+description: Core rules for Invoice & Payment Service (always apply)
+alwaysApply: true
+---
+
+# Invoice & Payment Service — Cursor Rules
+
+## Language & framework
+- Go 1.22, chi router, GORM ORM, PostgreSQL
+- Module: `invoice-service`. Files at repo root (no wrapper subfolder).
+- Config: `config.Load()` reads `.env` then env vars; single `DATABASE_URL` for API and tests.
+
+## Money — HARD RULE
+- ALL money values are int64 cents. NEVER float32/float64/decimal in money paths.
+- Column names end in `_cents`.
+
+## Database
+- GORM AutoMigrate only. `CREATE EXTENSION IF NOT EXISTS pgcrypto` before migrate.
+- PKs: `uuid.UUID` with `gen_random_uuid()`.
+
+## Payment handler (payments.go)
+1. Idempotency check BEFORE transaction
+2. `SELECT FOR UPDATE` on invoice inside transaction
+3. Insert `payment_attempt` status=pending, commit, then PSP (10s ctx timeout)
+4. NEVER call PSP inside a transaction
+
+## Webhooks
+- `go webhook.Dispatch(...)` — never block HTTP response
+- HMAC-SHA256: `X-Webhook-Signature: sha256=...`, `X-Webhook-Timestamp`
+
+## Errors
+- `{"error":{"code":"snake_case","message":"..."}}` via `respondError`
+
+## State machine
+- draft→open (finalize), draft/open→void, open→paid (pay success)
+- Terminal: paid, void, uncollectible → reject with 409

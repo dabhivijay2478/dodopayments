@@ -1,0 +1,16 @@
+---
+description: Documentation style for DESIGN, README, API, AI_USAGE
+globs: "**/*.md"
+alwaysApply: false
+---
+
+# Docs
+
+- Use bullet points and tables; avoid long prose walls
+- DESIGN.md: specific failure-mode answers (not generic "we use locking")
+- AI_USAGE.md: honest tools (Claude web = planning, Cursor = code); three real decisions
+- No TBD except README Demo Video link before submission
+- Keep API.md in sync with actual routes and status codes
+- README.md includes testing steps, 3 required Go tests, troubleshooting, checklist
+
+Do not inflate scope in docs; list cuts in DESIGN section 6.

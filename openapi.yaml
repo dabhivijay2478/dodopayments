@@ -1,0 +1,806 @@
+openapi: 3.0.3
+info:
+  title: Invoice & Payment Service API
+  description: |
+    Dodo Payments take-home — Invoice & Payment Service.
+
+    - **Auth:** `Authorization: Bearer <api_key>` on all routes except `/health`
+    - **Business key:** printed on `docker compose up` (admin — customers, api-keys, webhooks)
+    - **Customer key:** returned once per `POST /customers` (`api_key` in response)
+    - **Money:** integer cents (`int64`); server computes invoice totals
+    - **Pay:** requires `Idempotency-Key` header; 10s PSP timeout
+    - **Mock PSP:** http://localhost:9090 (host) or http://mock-psp:9090 (docker network)
+    - **Testing:** see README.md
+  version: 1.0.0
+  contact:
+    name: Invoice Service
+
+servers:
+  - url: http://localhost:8080
+    description: Local API (docker compose)
+  - url: http://localhost:9090
+    description: Mock PSP (from host / curl)
+
+tags:
+  - name: Health
+  - name: API Keys
+  - name: Customers
+  - name: Invoices
+  - name: Payments
+  - name: Webhooks
+  - name: Mock PSP
+
+paths:
+  /health:
+    get:
+      tags: [Health]
+      summary: Health check
+      operationId: getHealth
+      security: []
+      responses:
+        '200':
+          description: Service is up
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+
+  /api-keys:
+    post:
+      tags: [API Keys]
+      summary: Create API key
+      operationId: createAPIKey
+      description: Requires business Bearer token. Optional customer_id for customer-scoped key.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateAPIKeyRequest'
+      responses:
+        '201':
+          description: API key created (secret shown once)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIKeyCreated'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    get:
+      tags: [API Keys]
+      summary: List API keys
+      operationId: listAPIKeys
+      description: Requires business Bearer token.
+      responses:
+        '200':
+          description: API keys without secrets
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIKeyListResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /api-keys/{id}:
+    delete:
+      tags: [API Keys]
+      summary: Revoke API key
+      operationId: revokeAPIKey
+      parameters:
+        - $ref: '#/components/parameters/UuidPathId'
+      responses:
+        '200':
+          description: Key revoked
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /customers:
+    post:
+      tags: [Customers]
+      summary: Create customer
+      operationId: createCustomer
+      description: Requires business Bearer token. Returns unique customer api_key once.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateCustomerRequest'
+      responses:
+        '201':
+          description: Customer created with API key
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CustomerCreated'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+    get:
+      tags: [Customers]
+      summary: List customers
+      operationId: listCustomers
+      description: Business key lists all; customer key returns only self.
+      responses:
+        '200':
+          description: Customer list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CustomerListResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /customers/{id}:
+    get:
+      tags: [Customers]
+      summary: Get customer by ID
+      operationId: getCustomer
+      parameters:
+        - $ref: '#/components/parameters/UuidPathId'
+      responses:
+        '200':
+          description: Customer found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Customer'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /invoices:
+    post:
+      tags: [Invoices]
+      summary: Create invoice (draft)
+      operationId: createInvoice
+      description: Server computes total_cents. Customer key must match customer_id. Webhook invoice.created async.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateInvoiceRequest'
+      responses:
+        '201':
+          description: Invoice created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Invoice'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    get:
+      tags: [Invoices]
+      summary: List invoices
+      operationId: listInvoices
+      parameters:
+        - name: state
+          in: query
+          description: Filter by invoice state
+          schema:
+            type: string
+            enum: [draft, open, paid, void, uncollectible]
+      responses:
+        '200':
+          description: Invoice list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InvoiceListResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /invoices/{id}:
+    get:
+      tags: [Invoices]
+      summary: Get invoice by ID
+      operationId: getInvoice
+      parameters:
+        - $ref: '#/components/parameters/UuidPathId'
+      responses:
+        '200':
+          description: Invoice with line items and customer
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Invoice'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /invoices/{id}/finalize:
+    post:
+      tags: [Invoices]
+      summary: Finalize invoice (draft → open)
+      operationId: finalizeInvoice
+      parameters:
+        - $ref: '#/components/parameters/UuidPathId'
+      responses:
+        '200':
+          description: Invoice finalized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Invoice'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/InvalidTransition'
+
+  /invoices/{id}/void:
+    post:
+      tags: [Invoices]
+      summary: Void invoice (draft or open → void)
+      operationId: voidInvoice
+      parameters:
+        - $ref: '#/components/parameters/UuidPathId'
+      responses:
+        '200':
+          description: Invoice voided
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Invoice'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/InvalidTransition'
+
+  /invoices/{id}/pay:
+    post:
+      tags: [Payments]
+      summary: Pay invoice
+      operationId: payInvoice
+      description: |
+        Requires Idempotency-Key. Invoice must be `open`.
+        PSP timeout 10s. On failure invoice stays `open`.
+      parameters:
+        - $ref: '#/components/parameters/UuidPathId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PayInvoiceRequest'
+      responses:
+        '200':
+          description: Payment succeeded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaySuccessResponse'
+        '202':
+          description: Idempotent replay — payment still pending
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PayPendingResponse'
+        '402':
+          description: Payment failed (PSP)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PayFailedResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/InvalidState'
+        '422':
+          $ref: '#/components/responses/IdempotencyConflict'
+
+  /webhook-endpoints:
+    post:
+      tags: [Webhooks]
+      summary: Register webhook endpoint
+      operationId: createWebhookEndpoint
+      description: Requires business Bearer token. Secret returned only at creation time.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateWebhookRequest'
+      responses:
+        '201':
+          description: Webhook endpoint created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WebhookEndpointCreated'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+    get:
+      tags: [Webhooks]
+      summary: List webhook endpoints
+      operationId: listWebhookEndpoints
+      description: Requires business Bearer token.
+      responses:
+        '200':
+          description: Webhook endpoints (no secret)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WebhookEndpointListResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      description: Business key (docker logs) or customer key (POST /customers response)
+
+  parameters:
+    UuidPathId:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      schema:
+        type: string
+      description: Unique key per logical payment attempt
+
+  schemas:
+    HealthResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          example: ok
+
+    CreateAPIKeyRequest:
+      type: object
+      properties:
+        customer_id:
+          type: string
+          format: uuid
+          description: If set, creates customer-scoped key
+
+    APIKeyCreated:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        key_prefix:
+          type: string
+        api_key:
+          type: string
+          description: Full secret; shown only once
+        token_type:
+          type: string
+          example: Bearer
+        authorization:
+          type: string
+          description: Ready-to-use Authorization header value
+          example: Bearer sk_abc123...
+        scope:
+          type: string
+          enum: [business, customer]
+        customer_id:
+          type: string
+          format: uuid
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+        message:
+          type: string
+
+    APIKeyListItem:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        key_prefix:
+          type: string
+        scope:
+          type: string
+          enum: [business, customer]
+        customer_id:
+          type: string
+          format: uuid
+          nullable: true
+        revoked_at:
+          type: string
+          format: date-time
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+
+    APIKeyListResponse:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/APIKeyListItem'
+        count:
+          type: integer
+
+    ErrorBody:
+      type: object
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code:
+              type: string
+              example: bad_request
+            message:
+              type: string
+              example: Invalid JSON body
+
+    CreateCustomerRequest:
+      type: object
+      required: [name, email]
+      properties:
+        name:
+          type: string
+          example: Alice Smith
+        email:
+          type: string
+          format: email
+          example: alice@example.com
+
+    Customer:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        business_id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        email:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    CustomerCreated:
+      allOf:
+        - $ref: '#/components/schemas/Customer'
+        - type: object
+          properties:
+            api_key:
+              type: string
+              description: Customer-scoped secret; shown only once
+            token_type:
+              type: string
+              example: Bearer
+            authorization:
+              type: string
+              example: Bearer sk_...
+            key_id:
+              type: string
+              format: uuid
+            scope:
+              type: string
+              example: customer
+            message:
+              type: string
+
+    CustomerListResponse:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/Customer'
+        count:
+          type: integer
+
+    LineItemInput:
+      type: object
+      required: [description, quantity, unit_amount_cents]
+      properties:
+        description:
+          type: string
+        quantity:
+          type: integer
+          format: int64
+          minimum: 1
+        unit_amount_cents:
+          type: integer
+          format: int64
+          minimum: 0
+          description: Price per unit in cents
+
+    LineItem:
+      allOf:
+        - $ref: '#/components/schemas/LineItemInput'
+        - type: object
+          properties:
+            id:
+              type: string
+              format: uuid
+            invoice_id:
+              type: string
+              format: uuid
+            created_at:
+              type: string
+              format: date-time
+
+    CreateInvoiceRequest:
+      type: object
+      required: [customer_id, due_date, line_items]
+      properties:
+        customer_id:
+          type: string
+          format: uuid
+        due_date:
+          type: string
+          format: date
+          example: '2025-12-31'
+        line_items:
+          type: array
+          minItems: 1
+          items:
+            $ref: '#/components/schemas/LineItemInput'
+
+    Invoice:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        business_id:
+          type: string
+          format: uuid
+        customer_id:
+          type: string
+          format: uuid
+        state:
+          type: string
+          enum: [draft, open, paid, void, uncollectible]
+        due_date:
+          type: string
+          format: date-time
+        total_cents:
+          type: integer
+          format: int64
+          description: Server-computed sum of line items
+        line_items:
+          type: array
+          items:
+            $ref: '#/components/schemas/LineItem'
+        customer:
+          $ref: '#/components/schemas/Customer'
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    InvoiceListResponse:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/Invoice'
+        count:
+          type: integer
+
+    PayInvoiceRequest:
+      type: object
+      required: [card_token]
+      properties:
+        card_token:
+          type: string
+          description: Mock PSP token
+          enum:
+            - tok_success
+            - tok_insufficient_funds
+            - tok_card_declined
+            - tok_timeout
+            - tok_network_error
+          example: tok_success
+
+    PaySuccessResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          example: succeeded
+        payment_attempt_id:
+          type: string
+          format: uuid
+        psp_reference:
+          type: string
+
+    PayPendingResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          example: pending
+        message:
+          type: string
+          example: payment is being processed
+
+    PayFailedResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          example: failed
+        code:
+          type: string
+          example: card_declined
+          description: timeout, network_error, insufficient_funds, card_declined, etc.
+
+    CreateWebhookRequest:
+      type: object
+      required: [url]
+      properties:
+        url:
+          type: string
+          format: uri
+          example: https://webhook.site/your-uuid
+
+    WebhookEndpointCreated:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        url:
+          type: string
+        secret:
+          type: string
+          description: Shown only once
+        created_at:
+          type: string
+          format: date-time
+
+    WebhookEndpointListItem:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        url:
+          type: string
+        business_id:
+          type: string
+          format: uuid
+        created_at:
+          type: string
+          format: date-time
+
+    WebhookEndpointListResponse:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/WebhookEndpointListItem'
+        count:
+          type: integer
+
+    MockPSPChargeRequest:
+      type: object
+      required: [card_token, amount_cents, currency, invoice_id]
+      properties:
+        card_token:
+          type: string
+        amount_cents:
+          type: integer
+          format: int64
+        currency:
+          type: string
+          example: usd
+        invoice_id:
+          type: string
+
+    MockPSPChargeResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [succeeded, failed]
+        psp_ref:
+          type: string
+        code:
+          type: string
+
+  responses:
+    BadRequest:
+      description: Bad request
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorBody'
+    Unauthorized:
+      description: Unauthorized
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorBody'
+    Forbidden:
+      description: Forbidden
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorBody'
+    NotFound:
+      description: Not found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorBody'
+    InvalidState:
+      description: Invalid invoice state
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorBody'
+    InvalidTransition:
+      description: Invalid state transition
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorBody'
+    IdempotencyConflict:
+      description: Idempotency key reused with different body
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorBody'
+
+security:
+  - BearerAuth: []
