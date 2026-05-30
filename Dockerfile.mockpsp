@@ -4,7 +4,7 @@ RUN apk add --no-cache git
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
-RUN CGO_ENABLED=0 GOOS=linux go build -o /mock-psp ./cmd/mock-psp
+RUN go mod tidy && CGO_ENABLED=0 GOOS=linux go build -o /mock-psp ./cmd/mock-psp
 
 FROM alpine:latest
 RUN apk --no-cache add ca-certificates

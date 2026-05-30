@@ -1,5 +1,3 @@
-version: "3.9"
-
 services:
   postgres:
     image: postgres:16-alpine
@@ -9,7 +7,7 @@ services:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
     ports:
-      - "5432:5432"
+      - "5433:5432"   # host 5433 avoids conflict with a local Postgres on 5432
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres -d invoicedb"]
       interval: 5s

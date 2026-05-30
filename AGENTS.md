@@ -21,6 +21,9 @@ Primary docs: [DESIGN.md](DESIGN.md), [API.md](API.md), [README.md](README.md), 
 ## Commands
 
 ```bash
+# Sync dependencies (run after go.mod changes or before first build)
+go mod tidy
+
 # Run full stack
 docker compose up --build
 

@@ -13,9 +13,12 @@ Go was chosen over Rust because of existing production experience with Go servic
 ```bash
 git clone https://github.com/dabhivijay2478/dodopayments
 cd dodopayments
-cp .env.example .env   # local API + tests use DATABASE_URL from here
+go mod tidy              # sync go.sum with go.mod (required before first build)
+cp .env.example .env     # local API + tests: DATABASE_URL uses host port 5433
 docker compose up --build
 ```
+
+`docker compose up` needs no manual DB setup: Postgres, API, and mock PSP start together. The API container talks to Postgres on the Docker network (`postgres:5432`). From your **host** (tests, `go run`), use **port 5433** in `.env` so you do not clash with another Postgres on 5432.
 
 On first boot, the API prints a test key:
 
@@ -35,6 +38,17 @@ Use it as `Authorization: Bearer <key>` on all routes except `GET /health`.
 | `PORT` | HTTP listen port | `8080` |
 | `PSP_BASE_URL` | Mock PSP base URL | `http://localhost:9090` |
 | `SEED_DATA` | Seed business + API key when `true` | `false` |
+
+### Local development (without Docker for the API)
+
+```bash
+go mod tidy
+cp .env.example .env
+docker compose up postgres mock-psp -d   # Postgres on localhost:5433
+go run ./cmd/api
+```
+
+Run `go mod tidy` whenever you change `go.mod` or see `missing go.sum entry` during `docker compose build`.
 
 ## curl Examples
 
@@ -115,13 +129,18 @@ Invoice remains `open` — client can retry with a new idempotency key.
 
 ### Prerequisites
 
-Postgres must be running and accessible via `DATABASE_URL` in `.env`:
+Postgres must be running and reachable at the host in `.env` (default **port 5433**):
 
 ```bash
+go mod tidy
 cp .env.example .env
-# Start Postgres (if not already running via docker compose):
+# Start Postgres (if not already running):
 docker compose up postgres -d
 ```
+
+`DATABASE_URL` in `.env` should look like:
+
+`postgres://postgres:postgres@localhost:5433/invoicedb?sslmode=disable`
 
 ### Run all tests
 
