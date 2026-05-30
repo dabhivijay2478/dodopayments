@@ -487,7 +487,10 @@
             {
               "listen": "test",
               "script": {
-                "exec": [],
+                "exec": [
+                  "pm.test('Status 201', () => pm.response.to.have.status(201));",
+                  "pm.collectionVariables.set('customerId', pm.response.json().id);"
+                ],
                 "type": "text/javascript"
               }
             }
@@ -523,7 +526,10 @@
             {
               "listen": "test",
               "script": {
-                "exec": [],
+                "exec": [
+                  "pm.test('Status 201', () => pm.response.to.have.status(201));",
+                  "pm.collectionVariables.set('invoiceId', pm.response.json().id);"
+                ],
                 "type": "text/javascript"
               }
             }
